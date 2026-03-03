@@ -1,67 +1,40 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List
-from search import search_assessments
+import streamlit as st
+import requests
 
-app = FastAPI(title="SHL Assessment Recommendation API")
+API_URL = "https://shl-api-720651928669.us-central1.run.app/recommend"
 
+st.title("SHL Assessment Recommendation Engine")
 
-class QueryRequest(BaseModel):
-    query: str
+query = st.text_area("Enter Job Description or Query")
 
+if st.button("Get Recommendations"):
 
-class AssessmentResponse(BaseModel):
-    url: str
-    name: str
-    adaptive_support: str
-    description: str
-    duration: int
-    remote_support: str
-    test_type: List[str]
+    if not query.strip():
+        st.warning("Please enter a query.")
+    else:
+        with st.spinner("Fetching recommendations..."):
+            try:
+                response = requests.post(
+                    API_URL,
+                    json={"query": query},
+                    timeout=60
+                )
 
+                if response.status_code == 200:
+                    results = response.json().get("recommended_assessments", [])
 
-class RecommendationResponse(BaseModel):
-    recommended_assessments: List[AssessmentResponse]
+                    if results:
+                        for i, item in enumerate(results, 1):
+                            st.subheader(f"{i}. {item['name']}")
+                            st.write(item["description"])
+                            st.write(f"Duration: {item['duration']} minutes")
+                            st.markdown(f"[Open Assessment]({item['url']})")
+                            st.divider()
+                    else:
+                        st.info("No recommendations found.")
 
+                else:
+                    st.error(f"API Error: {response.status_code}")
 
-def map_test_type(code):
-    mapping = {
-        "A": "Ability & Aptitude",
-        "B": "Biodata & Situational Judgement",
-        "C": "Competencies",
-        "D": "Development & 360",
-        "E": "Assessment Exercises",
-        "K": "Knowledge & Skills",
-        "P": "Personality & Behaviour",
-        "S": "Simulations"
-    }
-    return [mapping.get(code, code)]
-
-
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-
-@app.post("/recommend", response_model=RecommendationResponse)
-def recommend_assessments(request: QueryRequest):
-
-    results = search_assessments(request.query)
-
-    formatted = []
-
-    for r in results[:10]:
-
-        formatted.append({
-            "url": r["url"],
-            "name": r["name"],
-            "adaptive_support": "Yes" if r.get("adaptive_support") else "No",
-            "description": r.get("description", ""),
-            "duration": int(r.get("duration", 0)),
-            "remote_support": "Yes" if r.get("remote_support") else "No",
-            "test_type": map_test_type(r.get("test_type", ""))
-        })
-
-    return {
-        "recommended_assessments": formatted
-    }
+            except Exception as e:
+                st.error(str(e))
